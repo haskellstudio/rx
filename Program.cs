@@ -8,8 +8,6 @@ using System.Threading;
 
 namespace rx
 {
-
-
     public class Observer<T> : IObserver<T>
     {
         private Action<T> _onNext = 
@@ -92,14 +90,18 @@ namespace rx
     {
         void Schedule(Action action);
 
-        void ScheduleInThread(Action action);
-        void ScheduleInThread(Action action, CancellationToken cancellationToken);
+       // void ScheduleInThread(Action action);
+      //  void ScheduleInThread(Action action, CancellationToken cancellationToken);
 
         void Schedule<T>(Action<T> action, T value);
 
-        void ScheduleInThread<T>(Action<T> action, T value);
 
-        void ScheduleInThread<T>(Action<T> action, T value, CancellationToken cancellationToken);
+        void Schedule<T>(Action action, CancellationToken cancellationToken);
+        void Schedule<T>(Action<T> action, T value, CancellationToken cancellationToken);
+
+      //  void ScheduleInThread<T>(Action<T> action, T value);
+
+      //  void ScheduleInThread<T>(Action<T> action, T value, CancellationToken cancellationToken);
     }
 
 
@@ -120,38 +122,52 @@ namespace rx
 
         public void Schedule(Action action)
         {
-            action();
+            Task.Factory.StartNew(action);
+        }
+
+        public void Schedule<T>(Action action, CancellationToken cancellationToken)
+        {
+
+            Task.Factory.StartNew(action, cancellationToken);
         }
 
         public void Schedule<T>(Action<T> action, T value)
         {
-            action(value);
-        }
-
-        public void ScheduleInThread(Action action)
-        {
-            Task.Factory.StartNew(action);
-        }
-
-        public void ScheduleInThread(Action action, CancellationToken cancellationToken)
-        {
-            Task.Factory.StartNew(action, cancellationToken);
-        }
-
-        public void ScheduleInThread<T>(Action<T> action , T value)
-        {
             Action fun = () => { action(value); };
             Task.Factory.StartNew(fun);
-
-            //Action<object> actionObject = (object o) => { action(value); };
-            //Task.Factory.StartNew(actionObject, (object)value);
         }
 
-        public void ScheduleInThread<T>(Action<T> action, T value, CancellationToken cancellationToken)
+        public void Schedule<T>(Action<T> action, T value, CancellationToken cancellationToken)
         {
-            Action fun = () => action(value);
-            Task.Factory.StartNew(fun, cancellationToken);
+
+            Action<object> actionObject = (object o) => { action(value); };
+            Task.Factory.StartNew(actionObject, cancellationToken);
         }
+
+        //public void ScheduleInThread(Action action)
+        //{
+        //    Task.Factory.StartNew(action);
+        //}
+
+        //public void ScheduleInThread(Action action, CancellationToken cancellationToken)
+        //{
+        //    Task.Factory.StartNew(action, cancellationToken);
+        //}
+
+        //public void ScheduleInThread<T>(Action<T> action , T value)
+        //{
+        //    Action fun = () => { action(value); };
+        //    Task.Factory.StartNew(fun);
+
+        //    //Action<object> actionObject = (object o) => { action(value); };
+        //    //Task.Factory.StartNew(actionObject, (object)value);
+        //}
+
+        //public void ScheduleInThread<T>(Action<T> action, T value, CancellationToken cancellationToken)
+        //{
+        //    Action fun = () => action(value);
+        //    Task.Factory.StartNew(fun, cancellationToken);
+        //}
     }
 
 
@@ -303,7 +319,47 @@ namespace rx
         }
     }
 
+    public class ReturnSubjectArray<T> : BaseSubject<T>
+    {
+        private T[] _array;
 
+        public ReturnSubjectArray(T[] array)
+        {
+            _array = array;
+        }
+
+        public override void execute()
+        {
+            foreach (var i in _array)
+            {
+                notifyValue(i);
+            };
+
+            notifyComplete();
+        }
+    }
+
+
+    public class ReturnSubjectCollection<T> : BaseSubject<T>
+    {
+        private IEnumerable<T> _collection;
+
+
+        public ReturnSubjectCollection(IEnumerable<T> collection)
+        {
+            _collection = collection;
+        }
+
+        public override void execute()
+        {
+            foreach(var i in _collection)
+            {
+                notifyValue(i);
+            }
+
+            notifyComplete();
+        }
+    }
 
 
     public class RangeSubject : BaseSubject<int>  // RangeSubject(10, 3) =>  10, 11, 12
@@ -338,42 +394,49 @@ namespace rx
 
             public void Execute()
             {
-                Action<int> action = null;
 
-                action =
-                    (int value) =>
+                for (var i = 0; i < __xtime; i++)
+                {
+                    foreach(var j in __observers)
                     {
-                        if (__observers.Count <= 0)
-                            return;
+                        j.OnNext(__value + i);
+                    }                    
+                }
 
-                        foreach (var i in __observers)
-                            i.OnNext(value);
+                foreach (var j in __observers)
+                {
+                    j.OnCompleted();
+                }
 
-                        if(repeatCounter < __xtime - 1)
-                        {
-                            repeatCounter++;
-                            __scheduler.Schedule(action, ++value);
-                        }
-                        else
-                        {
-                            foreach (var i in __observers)
-                                i.OnCompleted();
-                        }
 
-                        return;
-                    };
+                //Action<int> action = null;
 
-                action(__value);
+                //action =
+                //    (int value) =>
+                //    {
+                //        if (__observers.Count <= 0)
+                //            return;
+
+                //        foreach (var i in __observers)
+                //            i.OnNext(value);
+
+                //        if(repeatCounter < __xtime - 1)
+                //        {
+                //            repeatCounter++;
+                //            __scheduler.Schedule(action, ++value);
+                //        }
+                //        else
+                //        {
+                //            foreach (var i in __observers)
+                //                i.OnCompleted();
+                //        }
+
+                //        return;
+                //    };
+
+                //action(__value);
             }
-
-
-
-          
-
         }
-
-
-
         public override void execute()
         {
             ThreadExecuter te = new ThreadExecuter
@@ -383,14 +446,361 @@ namespace rx
                 __scheduler = _Scheduler,
                 __xtime = _xtime
             };
-
+           
             _Scheduler.Schedule(te.Execute);
+
+            //for (int i = 0; i < _xtime; i++)
+            //{
+            //    notifyValue(_value + i);
+            //}
+            //notifyComplete();
+        }
+    }
+   
+
+
+
+
+    public class EmptySubject<T> : BaseSubject<T>
+    {
+        public EmptySubject() { }
+
+        public override void execute()
+        {
+            foreach(var i in _observers)
+            {
+                i.OnNext(default(T));
+                i.OnCompleted();
+            }
+        }
+    }
+
+
+    public class RepeatSubject<T>: BaseSubject<T>
+    {
+        private T       _value;
+        private int     _repeatCount;
+        private bool    _repeatendless = true;
+
+        public class ThreadExecuter<T>
+        {
+            public T    __value;
+            public int  __repeatcount;
+            public bool __repeatendless;
+
+            //public IScheduler __scheduler;
+            public List<IObserver<T>> __observers;
+
+            
+
+            public void exec()
+            {
+                if (__observers.Count <= 0)
+                    return;
+                if (!__repeatendless)
+                {
+                    for(var i = __repeatcount; i> 0; i--)
+                    {
+                        foreach (var j in __observers)
+                        {
+                            j.OnNext(__value);
+                        }
+                    }
+
+                    foreach (var i in __observers)
+                    {
+                       i.OnCompleted();
+                    }
+      
+                }
+                else
+                {
+                    while(true)
+                    {
+                        foreach (var i in __observers)
+                        {
+                            i.OnNext(__value);
+                        }
+                    }
+                }
+            }
+        }
+        public RepeatSubject(T value, IScheduler i = null)
+        {
+            _value = value;
+            if(i != null)
+            {
+                _Scheduler = i;
+            }
+        }
+
+        public RepeatSubject(T value, int repeatCount, IScheduler i = null)
+        {
+            _value = value;
+            _repeatCount = repeatCount;
+            _repeatendless = false;
+            if(i != null)
+            {
+                _Scheduler = i;
+            }
         }
 
 
+        public override void execute()
+        {
+            ThreadExecuter<T> te = new ThreadExecuter<T>()
+            {
+                __value = _value,
+                __repeatcount = _repeatCount,
+                __repeatendless = _repeatendless,
+                __observers = _observers,
+                //__scheduler = _Scheduler
+            };
+            _Scheduler.Schedule(te.exec);
+            //_Scheduler.ScheduleInThread(te.exec);
+        }
+    }
+    
 
+    public class ThrowSubject<T> : BaseSubject<T>
+    {
+        private Exception _execption;
+
+        public ThrowSubject(Exception e)
+        {
+            _execption = e;
+        }
+
+        public override void execute()
+        {
+            notifyError(_execption);
+        }
     }
 
+
+    public class NeverSubject<T> : BaseSubject<T>
+    {
+        public override void execute()
+        {
+           
+        }
+    }
+
+
+    public class CurrentThreadScheduler : IScheduler
+    {
+        public void Schedule(Action action)
+        {
+            action();
+        }
+
+        public void Schedule<T>(Action action, CancellationToken cancellationToken)
+        {
+            action();
+        }
+
+        public void Schedule<T>(Action<T> action, T value)
+        {
+            action(value);
+        }
+
+        public void Schedule<T>(Action<T> action, T value, CancellationToken cancellationToken)
+        {
+            action(value);
+        }
+    }
+
+
+    
+
+
+    public class ObserveOnSubject<T> : BaseSubject<T>
+    {
+      //  private IObservable<T> _source;
+        private BaseSubject<T> _subject;
+        private IDisposable _subscriped;
+        
+
+        public ObserveOnSubject(IObservable<T> source)
+        {
+          //  _source = source;
+            _Scheduler = new CurrentThreadScheduler();
+            _subject = (BaseSubject<T>)source;
+
+            var observer = new Observer<T>(
+                value =>
+                {
+                    notifyValue(value);
+                }
+                , 
+                e =>
+                {
+                    notifyError(e);
+                }
+                ,
+                () =>
+                {
+                    notifyComplete();
+                }
+                );
+
+            _subscriped = _subject.ColdSubscribe(observer);
+
+        }
+
+        public ObserveOnSubject(IObservable<T> source, IScheduler scheduler) : this(source)
+        {
+            _subject._Scheduler = scheduler;
+            base._Scheduler = scheduler;
+        }
+        public override void execute()
+        {
+            _Scheduler.Schedule(
+                ()=>
+                {
+                    try
+                    {
+                        _subject.execute();
+                    }
+                    catch(Exception e)
+                    {
+                        notifyError(e);
+                    }
+                }
+                
+                );
+        }
+    }
+
+
+
+    //public class MinSubjectInt : BaseSubject<int>
+    //{
+    //    //private IObservable<int> _source;
+    //    private IDisposable _subcriped;
+    //    private BaseSubject<int> _subject;
+
+    //    private int _minValue;
+    //    private bool _valueSet = false;
+
+    //    public MinSubjectInt(IObservable<int> source)
+    //    {
+    //        //_source = source;
+    //        _subject = (BaseSubject<int>) source;
+    //        var observer = new Observer<int>(
+    //            v =>
+    //            {
+    //                innerExecute(v);
+    //            },
+    //            e =>
+    //            {
+    //                notifyError(e);
+    //            },
+    //            () =>
+    //            {
+    //                notifyComplete();
+    //            }
+                
+                
+    //            );
+
+    //        _subcriped = _subject.ColdSubscribe(observer);
+    //    }
+
+    //    private void innerExecute(int value)
+    //    {
+    //        if(!_valueSet)
+    //        {
+    //            _minValue = value;
+    //            _valueSet = true;
+    //        }
+    //        else
+    //        {
+    //            if(value < _minValue)
+    //            {
+    //                _minValue = value;
+    //            }
+    //        }
+    //    }
+    //    public override void execute()
+    //    {
+    //        try
+    //        {
+    //            _subject.execute();
+    //            notifyValue(_minValue);
+
+    //        }
+    //        catch(Exception e)
+    //        {
+    //            notifyError(e);
+    //        }
+    //    }
+    //}
+
+
+
+    public class MinSubject<T> : BaseSubject<T> where T : IComparable<T>
+    {
+        //private IObservable<int> _source;
+        private IDisposable _subcriped;
+        private BaseSubject<T> _subject;
+
+        private T _minValue;
+        private bool _valueSet = false;
+
+        public MinSubject(IObservable<T> source)
+        {
+            //_source = source;
+            _subject = (BaseSubject<T>)source;
+            var observer = new Observer<T>(
+                v =>
+                {
+                    innerExecute(v);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+
+
+                );
+
+            _subcriped = _subject.ColdSubscribe(observer);
+        }
+
+        private void innerExecute(T value)
+        {
+            if (!_valueSet)
+            {
+                _minValue = value;
+                _valueSet = true;
+            }
+            else
+            {
+                if (value.CompareTo(_minValue) < 0)
+                {
+                    _minValue = value;
+                }
+            }
+        }
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+                notifyValue(_minValue);
+
+            }
+            catch (Exception e)
+            {
+                notifyError(e);
+            }
+        }
+    }
 
 
 
@@ -402,10 +812,69 @@ namespace rx
             return new ReturnSubject<T>(v);
         }
 
+        public static IObservable<T> Return<T>(T[] v)
+        {
+            return new ReturnSubjectArray<T>(v);
+        }
+
+        public static IObservable<T> Return<T>(IEnumerable<T> v)
+        {
+            return new ReturnSubjectCollection<T>(v);
+        }
+
+        public static IObservable<T> Return<T>(List<T> v)
+        {
+            return new ReturnSubjectCollection<T>(v);
+        }
         public static IObservable<int> Range(int start, int xtime)
         {
             return new RangeSubject(start, xtime);
         }
+
+        public static IObservable<T> Empty<T>()
+        {
+            return new EmptySubject<T>();
+        }
+
+        public static IObservable<T> Repeat<T>(T value)
+        {
+            return new RepeatSubject<T>(value);
+        }
+
+        public static IObservable<T> Throw<T>(Exception e)
+        {
+            return new ThrowSubject<T>(e);
+        }
+
+        public static IObservable<T> Never<T> ()
+        {
+            return new NeverSubject<T>();
+        }
+
+        public static IObservable<T> ObserveOn<T>(this IObservable<T> source, IScheduler scheduler)
+        {
+            if(scheduler == null)
+            {
+                return new ObserveOnSubject<T>(source);
+            }
+            else
+            {
+                return new ObserveOnSubject<T>(source, scheduler);
+            }
+            
+        }
+
+        //public static IObservable<int> Min(this IObservable<int> source)
+        //{
+        //    return new MinSubjectInt(source);
+        //}
+
+        public static IObservable<T> Min<T>(this IObservable<T> source) where T : IComparable<T>
+        {
+            return new MinSubject<T>(source);
+        }
+        // where T : IComparable<T>
+
     }
 
 
@@ -416,6 +885,26 @@ namespace rx
         {
             return new ReturnSubject<T>(value);
         }
+
+        public static IObservable<T> ToObservable<T>(this T[] array)
+        {
+            return new ReturnSubjectArray<T>(array);
+        }
+
+        public static IObservable<T> ToObservable<T>(this List<T> collection)
+        {
+            return new ReturnSubjectCollection<T>((IEnumerable<T>)collection);
+        }
+
+        public static IObservable<T> ToObservable<T>(this IEnumerable<T> collection)
+        {
+            return new ReturnSubjectCollection<T> (collection);
+        }
+        public static IObservable<T> ToEmpty<T>(this T value)
+        {
+            return new EmptySubject<T>();
+        }
+
 
         public static IDisposable Subscribe<T> (this IObservable<T> observable, Action<T> onNext, Action<Exception> onErr, Action onComplete)
         {
@@ -448,28 +937,199 @@ namespace rx
     {
         static void Main(string[] args)
         {
-            9.ToObservable().Subscribe(
-                value => Console.WriteLine("observer running: the value is {0} ", value)
-                );
 
-            Observable.Return(10).Subscribe(
-                value => Console.WriteLine("observer running: the value is {0} ", value)
-                );
+            /*
+                        9.ToObservable().Subscribe(
+                            value => Console.WriteLine("observer running: the value is {0} ", value)
+                            );
 
+                        Observable.Return(10).Subscribe(
+                            value => Console.WriteLine("observer running: the value is {0} ", value)
+                            );
+                          
             Observable.Range(10, 2).Subscribe(
-                v => Console.WriteLine(v)
+                            v => Console.WriteLine(v)
+                            );
+                              */
+
+            /*
+            Observable.Empty<String>().Subscribe(
+                v =>
+                {
+                    if (v == null)
+                        Console.WriteLine("v is null");
+                    else
+                        Console.WriteLine("v is not null");
+                }
+
                 );
 
+            Observable.Empty<char>().Subscribe(
+                v =>
+                {
+                    if (v == 0)
+                        Console.WriteLine("v is 0");
+                    else
+                        Console.WriteLine("v is not null");
+                }
+                );
+                */
+
+            /*
+            "aa".ToEmpty().Subscribe(
+               v =>
+               {
+                   if (v == null)
+                       Console.WriteLine("v is null");
+                   else
+                       Console.WriteLine("v is not null");
+               }
+
+               );
+
+            '1'.ToEmpty().Subscribe(
+
+               v =>
+               {
+                   if (v == 0)
+                       Console.WriteLine("v is 0");
+                   else
+                       Console.WriteLine("v is not null");
+               }
+
+               );
+                */
+
+
+            /*
+            int[] numbers; // declare numbers as an int array of any size
+            numbers = new int[10];
+            for(var i = 0; i < numbers.Count(); i++)
+            {
+                numbers[i] = (i+1) * 7;
+            }
+
+            Observable.Return(numbers).Subscribe(
+                               v =>
+                               {
+                                   Console.WriteLine(v);
+                               }
+                               
+                );
+
+            numbers.ToObservable().Subscribe(
+                                               v =>
+                                               {
+                                                   Console.WriteLine(v);
+                                               }
+
+                );
+            */
+
+
+            /*
+            List<string> t10 = new List<string>() { "i1", "i3", "i4", "i6" };
+            Observable.Return(t10).Subscribe(
+                               v =>
+                               {
+                                   Console.WriteLine(v);
+                               }
+
+                );
+
+            t10.ToObservable().Subscribe(
+                                               v =>
+                                               {
+                                                   Console.WriteLine(v);
+                                               }
+                );
+
+    */
 
 
 
+
+            //Console.WriteLine("main thread id is {0}" ,Thread.CurrentThread.ManagedThreadId.ToString());
+            //Console.Read();
+            //Observable.Repeat("hi\n").Subscribe(
+
+            //                                                   v =>
+            //                                                   {
+            //                                                       Console.WriteLine(v );
+            //                                                       Console.WriteLine(Thread.CurrentThread.ManagedThreadId.ToString());
+            //                                                   }
+            //    );
+
+
+            /* 
+            Observable.Throw<object>(new Exception("custom exception")).Subscribe(
+                x =>
+                {
+                    var y = x;
+                } ,
+
+                e =>
+                {
+                    Console.WriteLine(e.Message);
+                });
+                */
+
+
+            /* 
+            Observable.Never<object>().Subscribe(
+                x =>
+                {
+                    Console.WriteLine("this will never show");
+                }
+                );
+                */
+
+
+
+            //Observable.Return<int>(42).ObserveOn(null).Subscribe<int>(
+            //    x => Console.WriteLine(x),
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+            //Observable.Range(10, 2).Min().Subscribe(
+            //     v => Console.WriteLine(v)
+            //     );
+            // !!!!!!!!!!!!!!!!!! error  Min return 0, because Range use thread to generate num,  when  notifyValue(_minValue) execute , the range haven't execute at all, so it always return 0;
+
+            Observable.Range(10, 2).ObserveOn(new CurrentThreadScheduler()).Min().Subscribe(
+                 v => Console.WriteLine(v)
+                 );
+
+            /*
+                        int[] numbers; // declare numbers as an int array of any size
+                        numbers = new int[10];
+                        for (var i = 0; i < numbers.Count(); i++)
+                        {
+                            numbers[i] = (i + 1) * 7;
+                        }
+
+                        numbers.ToObservable().Min().Subscribe(
+                                                           v =>
+                                                           {
+                                                               Console.WriteLine(v);
+                                                           }
+
+                            );
+                            */
+
+
+
+
+            while (true)
+            {
+                var r = Console.ReadLine();
+                Console.WriteLine(r);
+            }
 
         }
 
-      
-        public void show()
-        {
-            Console.WriteLine(1);
-        }
+
+
     }
 }
