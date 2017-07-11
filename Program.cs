@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -1187,6 +1187,250 @@ namespace rx
     }
 
 
+    public class FinallySubject<T> : BaseSubject<T>
+    {
+        private BaseSubject<T> _subject;
+        private IDisposable _subscriped;
+        private Action _action;
+
+
+        public FinallySubject(IObservable<T> source, Action action)
+        {
+            _subject = (BaseSubject<T>)source;
+            _action = action;
+
+            var observer = new Observer<T>(
+                v =>
+                {
+                    notifyValue(v);
+                },
+                e =>
+                {
+                    notifyError(e);
+                    _action();
+                },
+                () =>
+                {
+                    notifyComplete();
+                    _action();
+                }
+                );
+            _subscriped = _subject.ColdSubscribe(observer);
+
+
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+                _action();
+            }
+        }
+    }
+
+
+
+    public class AmbSubject<T> : BaseSubject<T>
+    {
+        private IDisposable _fstsubscriped;
+        private IDisposable _sndsubscriped;
+
+
+        private BaseSubject<T> _fst;
+        private BaseSubject<T> _snd;
+
+        private TimeSpan dueTime;
+        private bool _fstReacted;
+        private bool _sndReacted;
+
+
+        public AmbSubject(IObservable<T> fst, IObservable<T> snd)
+        {
+            _fst = (BaseSubject<T>)fst;
+            _snd = (BaseSubject<T>)snd;
+
+            var fstobserver = new Observer<T>(
+                v =>
+                {
+                    try
+                    {
+                        if (!_sndReacted)
+                        {
+                            _fstReacted = true;
+                            notifyValue(v);
+                        }
+                    }
+                    catch(Exception e)
+                    {
+                        notifyError(e);
+                    }
+
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+                
+                
+                );
+
+            var sndobserver = new Observer<T>(
+                v =>
+                {
+                    try
+                    {
+                        if (!_fstReacted)
+                        {
+                            _sndReacted = true;
+                            notifyValue(v);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        notifyError(e);
+                    }
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+
+                );
+
+            _fstsubscriped = _fst.ColdSubscribe(fstobserver);
+
+            _sndsubscriped = _snd.ColdSubscribe(sndobserver);
+        }
+
+
+        public override void execute()
+        {
+            _fst.execute();
+            _snd.execute();
+        }
+
+
+
+    }
+
+
+    public class AnySubject<T> : BaseSubject<bool>
+    {
+     
+        private IDisposable _subscriped;
+        private BaseSubject<T> _subject;
+        private bool _passed;
+
+        public AnySubject(IObservable<T> source)
+        {
+            _subject = (BaseSubject<T>)source;
+
+            var observer = new Observer<T>(
+                value =>
+                {
+                    _passed = true;
+                }
+                ,
+                e =>
+                {
+                    notifyError(e);
+                }
+                ,
+                () =>
+                {
+                    notifyComplete();
+                }
+                
+                );
+
+
+            _subscriped = _subject.ColdSubscribe(observer);
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+                notifyValue(_passed);
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+
+    }
+
+
+    public class AverageSubject<T> : BaseSubject<double>
+    {
+        private BaseSubject<int> _subject;
+        private IDisposable _subscriped;
+
+        private double _value = -1;
+        private int _count = 0;
+
+        public AverageSubject(IObservable<int> source) 
+        {
+            _subject = (BaseSubject<int>)source;
+
+            var observer = new Observer<int>(
+                v =>
+                {
+                    _value = _value + v;
+                    _count++;
+                }
+                ,
+                e =>
+                {
+                    notifyError(e);
+                }
+                ,
+                () =>
+                {
+                    notifyComplete();
+                }
+
+                );
+
+            _subscriped = _subject.ColdSubscribe(observer);
+
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+                double average = this._value / _count;
+                notifyValue(average);
+                notifyComplete();
+            }
+            catch (Exception e)
+            {
+                notifyError(e);
+            }
+        }
+
+    }
+
+
+
     // xxxsubject
     public static class Observable
     {
@@ -1304,6 +1548,17 @@ namespace rx
         public static IObservable<T> Catch<T>(this IObservable<T> fst, IObservable<T> snd)
         {
             return new CatchSubject<T>(fst, snd);
+        }
+
+
+        public static IObservable<T> Finally<T> (this IObservable<T> source, Action finallyAction)
+        {
+            return new FinallySubject<T>(source, finallyAction);
+        }
+
+        public static IObservable<double> Average(this IObservable<int> source)
+        {
+            return new AverageSubject<int>(source);
         }
 
     }//Observable
@@ -1597,10 +1852,35 @@ namespace rx
 
             //    );
 
-             //Observable.Throw<int>(new Exception("aa")).Catch(Observable.Return(10)).Subscribe<int>(
-             //   x => { Console.WriteLine(x); },
-             //   ex => Console.WriteLine("OnError {0}", ex.Message),
-             //   () => Console.WriteLine("OnCompleted"));
+            //Observable.Throw<int>(new Exception("aa")).Catch(Observable.Return(10)).Subscribe<int>(
+            //   x => { Console.WriteLine(x); },
+            //   ex => Console.WriteLine("OnError {0}", ex.Message),
+            //   () => Console.WriteLine("OnCompleted"));
+
+
+
+            //Observable.Throw<int>(new Exception("aa")).Finally(() => { Console.WriteLine("finally!"); }).Subscribe<int>(
+            //   x => { Console.WriteLine(x); },
+            //   ex =>
+            //   {
+            //       //Console.WriteLine("OnError {0}", ex.Message);
+            //   },
+            //   () => Console.WriteLine("OnCompleted"));
+
+
+            //Observable.Generate(1, i => i <= 5, i => i + 1, i => i, null).Average().Subscribe<double>
+            // (
+            //    x =>
+            //    {
+            //        Console.WriteLine(x);
+            //    }
+                
+            //    );
+
+
+            
+
+
 
             //   while (true)
             {
