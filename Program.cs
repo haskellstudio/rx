@@ -176,7 +176,7 @@ namespace rx
 
     public abstract class BaseSubject<T> : IObservable<T>
     {
-        private IScheduler _scheduler = new TaskScheduler();
+        private IScheduler _scheduler = new CurrentThreadScheduler();//TaskScheduler();
 
         public List<IObserver<T>> _observers;
 
@@ -927,7 +927,7 @@ namespace rx
 
             if (scheduler == null)
             {
-                this._Scheduler = new CurrentThreadScheduler();
+                this._Scheduler = new CurrentThreadScheduler(); //TaskScheduler();//
             }
             else
             {
@@ -963,6 +963,12 @@ namespace rx
                             i.OnNext(selectorValue);
                         lv = __iterate(lv);
                     }
+
+                    foreach(var i in __observers)
+                    {
+                        i.OnCompleted();
+                    }
+
                 };
 
                 action(__intValue);
@@ -1429,6 +1435,412 @@ namespace rx
 
     }
 
+    public class Allsubject<T> : BaseSubject<bool>
+    {
+        private IDisposable _subscriped;
+        private BaseSubject<T> _subject;
+        private Func<T, bool> _predicate;
+        private bool passed = true;
+
+
+        public Allsubject(IObservable<T> source, Func<T, bool> predicate)
+        {
+            _subject = (BaseSubject<T>)source;
+            _predicate = predicate;
+
+            var observer = new Observer<T>(
+
+                v =>
+                {
+                    if (!predicate(v))
+                    {
+                        passed = false;
+                    }
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+
+                }
+                );
+
+            _subscriped = _subject.ColdSubscribe(observer);
+            
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+                notifyValue(passed);
+                notifyComplete();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+    }
+
+
+    public class AggregateSubject<T> : BaseSubject<T>
+    {
+        private BaseSubject<T> _subject;
+        private IDisposable _subscriped;
+        private Func<T, T, T> _accumulator;
+        private T _value;
+        private bool valueIsSet = false;
+       // private ThreadExecuter threadExecuter;
+
+        public AutoResetEvent autoResetEvent = new AutoResetEvent(false);
+        public AggregateSubject(IObservable<T> source, Func<T, T, T> accumulator, IScheduler scheduler)
+        {
+            if(_Scheduler == null)
+            {
+                //_Scheduler = new CurrentThreadScheduler();
+            }
+            else
+            {
+                _Scheduler = scheduler;
+            }
+            
+            _subject = (BaseSubject<T>)source;
+            _accumulator = accumulator;
+            var observer = new Observer<T>(
+                v =>
+                {
+                    if(!valueIsSet)
+                    {
+                        valueIsSet = true;
+                        _value = _accumulator(v, default(T));
+                    }
+                    else
+                    {
+                        _value = _accumulator(v, _value);
+                    }
+                    
+                    
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    OnComplete();
+                }
+                );
+
+            _subscriped = _subject.ColdSubscribe(observer);
+        }
+
+        private void OnComplete()
+        {
+            autoResetEvent.Set();
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+                WaitHandle.WaitAll(new WaitHandle[] { autoResetEvent });
+                notifyValue(_value);
+                notifyComplete();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+    }
+
+
+
+
+    public class CastSubject<T> : BaseSubject<T>
+    {
+        private BaseSubject<object> _subject;
+
+        private IDisposable _subscriped;
+
+        public CastSubject(IObservable<object> source)
+        {
+            _subject = (BaseSubject<object>)source;
+
+            var observer = new Observer<object>(
+                v =>
+                {
+                    T castValue = (T)v;
+                    notifyValue(castValue);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+
+                );
+
+            _subscriped = _subject.ColdSubscribe(observer);
+        }
+
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+    }
+
+
+    public class CreateSubject<T> : BaseSubject<T>
+    {
+        private Func<IObserver<T>, Action> _subscribe;
+
+        public CreateSubject(Func<IObserver<T>, Action> subscribe)
+        {
+            _subscribe = subscribe;
+        }
+
+        public override void execute()
+        {
+            IObserver<T> observer = new Observer<T>(
+                o =>
+                {
+                    foreach (var i in _observers)
+                    {
+                        i.OnNext(o);
+                    }
+                },
+                e =>
+                {
+                    foreach(var i in _observers)
+                    {
+                        i.OnError(e);
+                    }
+                },
+                () =>
+                {
+                    foreach(var i in _observers)
+                    {
+                        i.OnCompleted();
+                    }
+                }
+                );
+
+            Action action = _subscribe(observer);
+            
+        }
+
+    }
+
+
+    public class ConcatSubject<T> : BaseSubject<T>
+    {
+        private BaseSubject<T> _fstSubject;
+        private BaseSubject<T> _sndSubject;
+
+        public ConcatSubject(IObservable<T> fstsource, IObservable<T> sndSource)
+        {
+            _fstSubject = (BaseSubject<T>)fstsource;
+            _sndSubject = (BaseSubject<T>)sndSource;
+
+            var observer = new Observer<T>(
+                v =>
+                {
+                    notifyValue(v);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    var ob2 = new Observer<T>(
+                        v2 =>
+                        {
+                            notifyValue(v2);
+                        },
+                        ex =>
+                        {
+                            notifyError(ex);
+                        },
+                        () =>
+                        {
+                            notifyComplete();
+                        }
+                        );
+                    _sndSubject.Subscribe(ob2);
+                }
+                );
+            _fstSubject.ColdSubscribe(observer);
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _fstSubject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+
+    }
+    
+
+    public class StartWithSubject<T> : BaseSubject<T>
+    {
+        private BaseSubject<T> _subject;
+
+        private IDisposable _subscriped;
+
+        private T[] _values;
+
+
+        public StartWithSubject(IObservable<T> source, T[] values)
+        {
+            _values = values;
+            _subject = (BaseSubject<T>)source;
+
+            var observer = new Observer<T>(
+                v =>
+                {
+                    notifyValue(v);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+                );
+            _subscriped = _subject.ColdSubscribe(observer);
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                foreach (var v in _values)
+                {
+                    notifyValue(v);
+                }
+                _subject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+
+        }
+    }
+
+
+    public class ScanSubject<T> : BaseSubject<T>
+    {
+        private Func<T, T, T> _accumulator;
+        private IDisposable _subscriped;
+        private BaseSubject<T> _subject;
+        private T _accumulatorValue = default(T);
+
+        public ScanSubject(IObservable<T> source, Func<T, T, T> accumulattor, T seed)
+        {
+            _subject = (BaseSubject<T>)source;
+            _accumulator = accumulattor;
+            _accumulatorValue = seed;
+            var observer = new Observer<T>(
+                v =>
+                {
+                    _accumulatorValue = _accumulator(v, _accumulatorValue);
+                    notifyValue(_accumulatorValue);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+                );
+            _subscriped = _subject.ColdSubscribe(observer);
+        }
+
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+    }
+
+
+    public class MapSubject<T, TResult> : BaseSubject<TResult>
+    {
+        private BaseSubject<T> _subject;
+
+        private Func<T, TResult> _mapFun;
+
+        public  MapSubject(IObservable<T> source, Func<T, TResult> mapFun)
+        {
+            _subject = (BaseSubject<T>)source;
+            _mapFun = mapFun;
+
+            var observer = new Observer<T>(
+                v =>
+                {
+                    TResult r = _mapFun(v);
+                    notifyValue(r);
+                },
+                e =>
+                {
+                    notifyError(e);
+                },
+                () =>
+                {
+                    notifyComplete();
+                }
+                );
+        }
+
+        public override void execute()
+        {
+            try
+            {
+                _subject.execute();
+            }
+            catch(Exception e)
+            {
+                notifyError(e);
+            }
+        }
+        
+    }
 
 
     // xxxsubject
@@ -1560,6 +1972,52 @@ namespace rx
         {
             return new AverageSubject<int>(source);
         }
+
+        public static IObservable<bool> All<T>(this IObservable<T> source, Func<T, bool> predicate)
+        {
+            return new Allsubject<T>(source, predicate);
+        }
+
+        public static IObservable<T> Aggregate<T> (this IObservable<T> source, Func<T, T, T> accmulator)
+        {
+            return new AggregateSubject<T>(source, accmulator, null);
+        }
+
+
+        public static IObservable<TResult> Cast<TResult>(this IObservable<object> source)
+        {
+            return new CastSubject<TResult>(source);
+        }
+
+        public static IObservable<T> Create<T>(Func<IObserver<T>, Action> subscribe)
+        {
+            return new CreateSubject<T>(subscribe);
+        }
+
+
+        public static IObservable<T> Concat<T> (this IObservable<T> firstsource, IObservable<T> sndsource)
+        {
+            return new ConcatSubject<T>(firstsource, sndsource);
+        }
+
+        public static IObservable<T> StartWith<T>(this IObservable<T> source, params T[] values)
+        {
+            return new StartWithSubject<T>(source, values);
+        }
+
+        public static IObservable<T> Scan<T>(this IObservable<T> source, T seed, Func<T, T, T> accumulatior)
+        {
+            return new ScanSubject<T>(source, accumulatior, seed);
+
+        }
+
+        public static IObservable<TResult> Map<T, TResult>(this IObservable<T>source , Func<T, TResult>mapFun)
+        {
+            return new MapSubject<T, TResult>(source, mapFun);
+        }
+
+
+
 
     }//Observable
 
@@ -1874,11 +2332,73 @@ namespace rx
             //    {
             //        Console.WriteLine(x);
             //    }
-                
+
             //    );
 
 
-            
+            //Observable.Generate(1, i => i <= 5, i => i + 1, i => i, null).All(a => a > 0).Subscribe<bool>(
+            //    x => Console.WriteLine(x),
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+
+            //IObservable<int> generateObject = Observable.Generate(0, i => i < 3, i => i + 1, i => i, null).Aggregate((x, y) =>
+            //{
+            //   Thread.Sleep(1000);
+            //   return  x + y;
+            //});
+            //generateObject.Subscribe<int>(
+            //    x =>
+            //    {
+            //        Console.WriteLine(x);
+            //    },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+            //object obj = (object)2.2;
+            //IObservable<double> returnObject = Observable.Return(obj).Cast<double>();
+            //returnObject.Subscribe<double>(
+            //    x => { Console.WriteLine(x); },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+
+            //var generatedObject = Observable.Create<int>(o =>
+            //{
+            //    o.OnNext(10);
+            //    o.OnNext(20);
+            //    return () => { };
+            //});
+            //IDisposable disposable = generatedObject.Subscribe(
+            //    x =>
+            //    {
+            //        Console.WriteLine(x) ;
+            //    },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+            //disposable.Dispose();
+
+
+            //IObservable<int> returnObject = Observable.Range(1, 4).Concat(Observable.Range(15, 5));
+            //returnObject.Subscribe<int>(
+            //    x => {  Console.WriteLine(x); },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+
+
+            //IObservable<int> returnObject = Observable.Generate(0, i => i < 10, i => i + 1, i => i, null).StartWith(20, 21, 22, 23, 24);
+            //returnObject.Subscribe<int>(
+            //    x => { Console.WriteLine(x); },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
+
+
+
 
 
 
