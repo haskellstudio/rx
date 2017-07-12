@@ -1826,6 +1826,7 @@ namespace rx
                     notifyComplete();
                 }
                 );
+            _subject.ColdSubscribe(observer);
         }
 
         public override void execute()
@@ -2399,6 +2400,11 @@ namespace rx
 
 
 
+            //var returnObject = Observable.Generate(0, i => i < 10, i => i + 1, i => i, null).StartWith(20, 21, 22, 23, 24).Map(i => i.ToString() + " ---");
+            //returnObject.Subscribe<String>(
+            //    x => { Console.WriteLine(x); },
+            //    ex => Console.WriteLine("OnError {0}", ex.Message),
+            //    () => Console.WriteLine("OnCompleted"));
 
 
 
